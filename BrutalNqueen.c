@@ -74,6 +74,25 @@ static int count_sol(board_t * b)
 	return ct;
 }
 
+static int pre_compute_boards(board_t* b,int depth,board_t* boards, int* board_index){
+	if (b->count == b->full || depth == 0)
+	{
+		 // Copy the current board state into the array
+        boards[*board_index] = *b;
+        (*board_index)++;
+		return 1 ;
+	}
+	int ct = 0;
+	for (int i = 0; i < b->full; i ++) {
+			add_queen(b, i);
+			if (is_viable(b)) {
+				ct += pre_compute_boards(b, depth - 1,boards,board_index);
+			}
+			drop_queen(b);
+		}
+	return ct;
+}
+
 void* main_thread_loop_receive(void* p)
 {
 	message_t message;
@@ -105,6 +124,7 @@ void* main_thread_loop_receive(void* p)
 	return 0;
 }
 
+int MAX_BOARDS = 100;
 
 int main(int argc, char** argv)
 {
@@ -114,12 +134,21 @@ int main(int argc, char** argv)
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 	printf("Hello world from rank %d out of %d processors\n", world_rank, world_size);
-
+	 // Array to store precomputed boards
 	pthread_t receiver;
 	pthread_create(&receiver, 0, main_thread_loop_receive, 0);
-	
 	board_t b = { .full = world_size, .count = 0 };
+
+	if(world_rank == 0){
+		int board_index = 0; 	
+		int depth = 2; 
+		board_t boards[MAX_BOARDS];
+		printf("world ranks %d \n ", world_rank);
+		int expectedTasks = pre_compute_boards(&b,depth,boards,&board_index);
+		printf("Pre computed Tasks %d\n", expectedTasks);
+	}
 	
+	return;
 	add_queen(&b, world_rank);
 	double start = get_microseconds_from_epoch();
 	int ct = count_sol(&b);
