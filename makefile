@@ -12,12 +12,17 @@ TARGET = bin/brutalNQueen
 all: $(TARGET)
 
 # Rule to build the executable
-$(TARGET): $(SRC)
+$(TARGET): $(SRC) | bin
 	$(CC) $(CFLAGS) -o $(TARGET) $(SRC)
 
-# Clean rule to remove the executable
+# Rule to create the bin directory
+bin:
+	mkdir -p bin
+
+# Clean rule to remove the executable and bin directory
 clean:
 	rm -f $(TARGET)
+	rm -rf bin
 
 # Phony targets
-.PHONY: all clean
+.PHONY: all clean bin
