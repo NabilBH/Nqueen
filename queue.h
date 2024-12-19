@@ -18,5 +18,5 @@ Queue* create_queue(int capacity);
 void enqueue(Queue* q, board_t item);
 board_t dequeue(Queue* q);
 void destroy_queue(Queue* q);
-
+int is_empty(Queue* q);
 #endif // QUEUE_H

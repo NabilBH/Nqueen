@@ -15,6 +15,14 @@ Queue* create_queue(int capacity) {
     return q;
 }
 
+int is_empty(Queue* q) {
+    int result;
+    pthread_mutex_lock(&q->lock);  // Lock the mutex to ensure thread-safety
+    result = (q->size == 0);  // Check if the queue is empty
+    pthread_mutex_unlock(&q->lock);  // Unlock the mutex
+    return result;
+}
+
 // Enqueue an item
 void enqueue(Queue* q, board_t item) {
     pthread_mutex_lock(&q->lock); // Lock the queue
@@ -34,8 +42,6 @@ board_t dequeue(Queue* q) {
     board_t item;
     if (q->size == 0) {
         printf("Queue is empty!\n");
-        board_t empty_item = {0};
-        return empty_item;
     } else {
         item = q->data[q->front];
         q->front = (q->front + 1) % q->capacity;
