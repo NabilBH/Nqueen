@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <pthread.h>
+#include "queue.h"
+#include "board_t.h"
+#include<unistd.h>
 
 double get_microseconds_from_epoch()
 {
@@ -11,14 +14,6 @@ double get_microseconds_from_epoch()
 	return (double)(tv.tv_sec) * 1e6 + (double)(tv.tv_usec);
 }
 
-#define MAX 20
-
-typedef struct {
-	int full;
-	int count;
-	int pos[MAX];
-} board_t;
-
 int count_count_sol = 0;
 int world_size, world_rank;
 int requested = 0;
@@ -26,9 +21,6 @@ int requester = 0;
 int counted = 0;
 
 #define MY_TAG 1234
-
-
-
 #define MESSAGE_REQUEST 1
 #define MESSAGE_FORWARD 2
 #define MESSAGE_KILL 3
@@ -37,21 +29,9 @@ int counted = 0;
 typedef struct {
 	int type;
 	board_t board;
+	int completedTasks;
 } message_t;
 
-
-static void add_queen(board_t * b, int q)	{b->pos[b->count ++] = q;}
-static int drop_queen(board_t * b)		{return b->pos[-- b->count];}
-
-static int is_viable(board_t *b)
-{
-	int lastp = b->count - 1;
-	int last = b->pos[lastp];
-	for (int i=0; i<lastp; i++)
-		if ((b->pos[i] == last) || ((lastp-i) == (last-b->pos[i])) || ((i-lastp) == (last-b->pos[i])))
-			return 0;
-	return 1;
-}
 
 static int count_sol(board_t * b)
 {
@@ -77,7 +57,6 @@ static int count_sol(board_t * b)
 static int pre_compute_boards(board_t* b,int depth,board_t* boards, int* board_index){
 	if (b->count == b->full || depth == 0)
 	{
-		 // Copy the current board state into the array
         boards[*board_index] = *b;
         (*board_index)++;
 		return 1 ;
@@ -97,6 +76,8 @@ void* main_thread_loop_receive(void* p)
 {
 	message_t message;
 	MPI_Status status;
+	Queue* q = (Queue*)p;
+
 	int alive = 1;
 	while (alive) {
 		MPI_Recv(&message, sizeof(message_t), MPI_BYTE, MPI_ANY_SOURCE, MY_TAG, MPI_COMM_WORLD, &status);
@@ -106,7 +87,9 @@ void* main_thread_loop_receive(void* p)
 				requester = status.MPI_SOURCE;
 				break;
 			case MESSAGE_FORWARD:
-				counted += count_sol(&message.board);
+				printf("Enqueue from %d\n",world_rank);
+				enqueue(q,message.board);
+				//counted += count_sol(&message.board);
 				break;
 			case MESSAGE_KILL: {
 					message_t m = {MESSAGE_KILL_ACK};
@@ -128,40 +111,60 @@ int MAX_BOARDS = 100;
 
 int main(int argc, char** argv)
 {
-	int i;
+	//int i;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 	printf("Hello world from rank %d out of %d processors\n", world_rank, world_size);
-	 // Array to store precomputed boards
+	
+	Queue* q = create_queue(10);
+	
 	pthread_t receiver;
-	pthread_create(&receiver, 0, main_thread_loop_receive, 0);
 	board_t b = { .full = world_size, .count = 0 };
+	int ct = 0;
+	pthread_create(&receiver, 0, main_thread_loop_receive, (void*)q);
 
 	if(world_rank == 0){
+		// Array pour stocker les partial boards
 		int board_index = 0; 	
 		int depth = 2; 
-		board_t boards[MAX_BOARDS];
-		printf("world ranks %d \n ", world_rank);
-		int expectedTasks = pre_compute_boards(&b,depth,boards,&board_index);
-		printf("Pre computed Tasks %d\n", expectedTasks);
-	}
-	
-	return;
-	add_queen(&b, world_rank);
-	double start = get_microseconds_from_epoch();
-	int ct = count_sol(&b);
-	double end = get_microseconds_from_epoch();
+		board_t partialBoards[MAX_BOARDS];
+		int expectedTasks = pre_compute_boards(&b,depth,partialBoards,&board_index);
 
+		printf("Pre computed Tasks %d\n", expectedTasks);
+		//distribute partial boards
+		for (int i = 0; i < expectedTasks; ++i) {
+            int target_worker = (i % (world_size - 1)); 
+			message_t partial_board = {MESSAGE_FORWARD, partialBoards[i]};
+            MPI_Send(&partial_board, sizeof(message_t), MPI_BYTE, target_worker, MY_TAG, MPI_COMM_WORLD);
+        }
+	} 
+	int taskDone = 0;
+	int waiting = 1;
+	int baseDelay = 1;
+	// while  q is not empty
+		board_t task = dequeue(q);
+		int taskDone +=1 ;
+
+		printf("World rank %d with board size %d and %d queens\n", task.full, task.count);
+		ct = count_sol(&task);
+		
+	
+	
+		
+	// add_queen(&b, world_rank);
+	// double start = get_microseconds_from_epoch();
+	// int ct = count_sol(&b);
+	// double end = get_microseconds_from_epoch();
 
 	int tot;
-	printf("count_count_sol=%d, time=%lf\n", count_count_sol, (end-start)/1e6);
+	//printf("count_count_sol=%d, time=%lf\n", count_count_sol, (end-start)/1e6);
 
 	MPI_Reduce(&ct, &tot, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
-	message_t m = {MESSAGE_REQUEST};
-	MPI_Send(&m, sizeof(message_t), MPI_BYTE, rand() % world_size, MY_TAG, MPI_COMM_WORLD);
+	//message_t m = {MESSAGE_REQUEST};
+	//MPI_Send(&m, sizeof(message_t), MPI_BYTE, rand() % world_size, MY_TAG, MPI_COMM_WORLD);
 
 	if (world_rank == 0) {
 		printf("nq=%d sol=%d\n", world_size, tot);

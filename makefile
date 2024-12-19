@@ -5,7 +5,7 @@ CC = mpicc
 CFLAGS = -Wall -Wextra -std=c11 -g -pthread
 
 # Source files and output
-SRC = brutalNqueen.c
+SRC = brutalNqueen.c queue.c board_t.c
 TARGET = bin/brutalNQueen
 
 # Default rule
