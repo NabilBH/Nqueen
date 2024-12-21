@@ -95,20 +95,16 @@ void* main_thread_loop_receive(void* args)
 				requested = 1;
 				requester = status.MPI_SOURCE;
 				break;
-			case MESSAGE_FORWARD:
-				
-				printf("Enqueue in worker %d\n",world_rank);
-				//thArgs->receivedWork = 1;
+			case MESSAGE_FORWARD:		
+				//printf("Enqueue in worker %d\n",world_rank);
 				enqueue(thArgs->queue,message.board);
-				//counted += count_sol(&message.board);
 				break;
 			case MESSAGE_KILL: {
 					message_t m = {MESSAGE_KILL_ACK};
 					thArgs->running = 0;
-					if (status.MPI_SOURCE != world_rank)
-						MPI_Send(&m, sizeof(message_t), MPI_BYTE, status.MPI_SOURCE, MY_TAG, MPI_COMM_WORLD);
+
 					alive = 0;
-					printf("dying %d\n", world_rank);
+					printf("%d worker dying \n", world_rank);
 				}
 				break;
 			case MESSAGE_TASKCOUNT: {
@@ -116,14 +112,9 @@ void* main_thread_loop_receive(void* args)
 				totalTasks += message.completedTasks;
 				thArgs->solCount += message.solCount;
 
-				printf("%d: Received from worker nbr of task %d \n", world_rank,message.completedTasks);
-				// if(message.completedTasks!=0){
-				// 	printf("Received Task %d\n", message.completedTasks);
-				// 	printf("totalTasks %d\n",totalTasks);
-				// }
-				//printf("Total tasks received at Master %d \n ",totalTasks);
+				//printf("%d: Received from worker %d task completed \n", world_rank,message.completedTasks);
 				if(totalTasks == thArgs->expectedTasks && thArgs->expectedTasks != 0){
-					printf("Killing\n");
+					printf("%d: Killing all\n", world_rank);
 					message_t m = {MESSAGE_KILL};
 
 					for (int i=1; i<world_size; i++) {
@@ -144,12 +135,8 @@ void* main_thread_loop_receive(void* args)
 int MAX_BOARDS = 100;
 
 
-
-
 int main(int argc, char** argv)
 {
-	//int i;
-
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
@@ -179,63 +166,45 @@ int main(int argc, char** argv)
 			message_t partial_board = {MESSAGE_FORWARD, .board=partialBoards[i]};
             MPI_Send(&partial_board, sizeof(message_t), MPI_BYTE, target_worker, MY_TAG, MPI_COMM_WORLD);
         }
+
+		printf("Master Distributed all work\n");
 	} 
 	int taskDone = 0;
-
-	int working = 1;
-	int terminate = 0; // Flag to signal termination
-
+	int totalLocalTasks = 0;
 	while(world_rank!=0 && thArgs.running)
 	{
 		if(is_empty(q)){
-			if(taskDone != 0){
-				// printf("Empty Queue\ n");
-				// printf("Total tasks to send %d\n", taskDone);
-			
-			// potential end of tasks
-			message_t calculatedTasks = {MESSAGE_TASKCOUNT,.completedTasks = taskDone};
-            MPI_Send(&calculatedTasks, sizeof(message_t), MPI_BYTE, 0, MY_TAG, MPI_COMM_WORLD);
-			printf("%d : Sending to master \n",world_rank);
-			taskDone = 0;
-			ct=0;
+			if(taskDone != 0){			
+				// potential end of tasks
+				message_t calculatedTasks = {MESSAGE_TASKCOUNT,.completedTasks = taskDone, .solCount=ct};
+				MPI_Send(&calculatedTasks, sizeof(message_t), MPI_BYTE, 0, MY_TAG, MPI_COMM_WORLD);
+				//printf("%d : Sending to master \n",world_rank);
+				taskDone = 0;
+				ct=0;
 			}else{
 				sleep(1);
 			}
 		} else {
 			board_t task = dequeue(q);
-			// printf("Board for worker %d\n",world_rank);
-			// for (int i = 0; i < task.count; i++) {
-			// 	printf( "QUEEN at Row %d, Column %d\n",i, task.pos[i]);
-    		// }
 			ct += count_sol(&task);
 			taskDone += 1;
-			
-			printf("%d : Dequeue\n",world_rank);
-			printf("nbr Tasks Done %d from worker %d \n",taskDone, world_rank);
+			totalLocalTasks+=1;
+			//printf("%d : Dequeue\n",world_rank);
+			//printf("%d : finished %d Tasks\n",world_rank, totalLocalTasks);
 			
 		}
-
 	}
-	// add_queen(&b, world_rank);
-	// double start = get_microseconds_from_epoch();
-	// int ct = count_sol(&b);
-	// double end = get_microseconds_from_epoch();
-	int tot;
-	//printf("count_count_sol=%d, time=%lf\n", count_count_sol, (end-start)/1e6);
 
 	void* dummy;
-	pthread_join(&receiver,&dummy);
-	//MPI_Reduce(&ct, &tot, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-	printf("Reduced from worker %d\n",world_rank);
-	//message_t m = {MESSAGE_REQUEST};
-	//MPI_Send(&m, sizeof(message_t), MPI_BYTE, rand() % world_size, MY_TAG, MPI_COMM_WORLD);
-	
+	//Apres
+	pthread_join(receiver,&dummy);
+	printf("%d: Thread finished\n",world_rank);
 
-	printf("nq=%d sol=%d\n", world_size, thArgs.solCount);
-
-
+	if (world_rank == 0){
+		printf("nq=%d sol=%d\n", world_size, thArgs.solCount);
+	}
 
 	MPI_Finalize();
 
-	printf("counted=%d\n", counted);
+	//printf("counted=%d\n", counted);
 }
