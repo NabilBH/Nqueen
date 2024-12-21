@@ -16,7 +16,7 @@ make
 
 Run NQuen Program 
 ```bash
-mpirun brutalNQueen -np <core_numbers> 
+mpirun bin/brutalNQueen -np <core_numbers> 
 ```
 
 
