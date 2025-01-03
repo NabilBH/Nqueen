@@ -50,11 +50,6 @@ static int count_sol(board_t * b)
 	for (int i = 0; i < b->full; i ++) {
 		add_queen(b, i);
 		if (is_viable(b)) {
-			// if (requested) {
-			// 	message_t m = {MESSAGE_FORWARD, *b};
-			// 	MPI_Send(&m, sizeof(message_t), MPI_BYTE, requester, MY_TAG, MPI_COMM_WORLD);
-			// 	requested = 0;
-			// } else
 			ct += count_sol(b);
 		}
 		drop_queen(b);
@@ -140,12 +135,31 @@ void* main_thread_loop_receive(void* args)
 	return 0;
 }
 
+int distribute_work(int boardSize, int nbrWorkers,int initBoardDepth){
+	int MAX_BOARDS = 3500;
 
+	board_t b = { .full = boardSize, .count = 0 };
+	printf("board size : %d\n", boardSize);
+	// Array pour stocker les partial boards
+	int board_index = 0; 	
+	board_t partialBoards[MAX_BOARDS];
+	int preComputed= pre_compute_boards(&b, initBoardDepth, partialBoards, &board_index);
+	
+	printf("Pre computed Tasks %d\n", preComputed);
+	int target_worker = 0;
+	//distribute partial boards
+	for (int i = 0; i < preComputed; ++i) {
+		//exclude master node from tasks
+		target_worker = (i % (nbrWorkers-1)) + 1; 
+		//printf("board %d\n",i);
+		message_t partial_board = {MESSAGE_FORWARD, .board=partialBoards[i]};
+		MPI_Send(&partial_board, sizeof(message_t), MPI_BYTE, target_worker, MY_TAG, MPI_COMM_WORLD);
+	}
+	return preComputed;
+}
 
 int main(int argc, char** argv)
 {
-	int MAX_BOARDS = 3500;
-
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
@@ -157,35 +171,17 @@ int main(int argc, char** argv)
 	double start = 0;
 	int emptyQueueHits = 0;
 	int taskDone = 0;
-	int totalLocalTasks = 0;
-	int delay_sec = 0; 
 	double delayNano = 100000;
 	struct timespec req;
-    req.tv_sec = delay_sec;
+    req.tv_sec = 0;
     req.tv_nsec = delayNano;
 
 	pthread_create(&receiver, 0, main_thread_loop_receive, &thArgs);
 	start = get_microseconds_from_epoch();
 
 	if(world_rank == 0){
-		board_t b = { .full = world_size, .count = 0 };
-		printf("board size : %d\n", world_size);
-		// Array pour stocker les partial boards
-		int board_index = 0; 	
-		int depth = 3; 
-		board_t partialBoards[MAX_BOARDS];
-		int preComputed= pre_compute_boards(&b, depth, partialBoards, &board_index);
-		thArgs.expectedTasks = preComputed;
-		printf("Pre computed Tasks %d\n", thArgs.expectedTasks);
-		int target_worker = 0;
-		//distribute partial boards
-		for (int i = 0; i < preComputed; ++i) {
-			//exclude master node from tasks
-            target_worker = (i % (world_size - 1)) + 1; 
-			//printf("board %d\n",i);
-			message_t partial_board = {MESSAGE_FORWARD, .board=partialBoards[i]};
-            MPI_Send(&partial_board, sizeof(message_t), MPI_BYTE, target_worker, MY_TAG, MPI_COMM_WORLD);
-        }
+		int depth = 3;
+		thArgs.expectedTasks = distribute_work(world_size,world_size,depth);
 		printf("Distribute work finished\n");
 	} 
 	
@@ -198,29 +194,21 @@ int main(int argc, char** argv)
 				MPI_Send(&calculatedTasks, sizeof(message_t), MPI_BYTE, 0, MY_TAG, MPI_COMM_WORLD);
 				taskDone = 0;
 				ct=0;
-				//baseDelay = 100000; // useconds
 				req.tv_nsec = delayNano;
-				req.tv_sec = delay_sec;
 
 			} else {
 				emptyQueueHits+=1;	
-				//printf("%d: Waiting for %ld seconds and %ld nanoseconds...\n",world_rank, req.tv_sec, req.tv_nsec);
 				nanosleep(&req, NULL); 
-				//sleep(1);
 				req.tv_nsec *= 5;
 				req.tv_sec *= 2;
 		
 			}
 		} else {
-			//printf("%d: dequeue\n",world_rank);
 			board_t task = dequeue(q);;
 			
 			ct += count_sol(&task);
 			taskDone += 1;
-			totalLocalTasks+=1;
 			req.tv_nsec = delayNano;
-			req.tv_sec = delay_sec;
-
 		}
 	}
 
