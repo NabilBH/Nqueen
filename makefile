@@ -2,7 +2,7 @@
 CC = mpicc
 
 # Compiler flags
-CFLAGS = -Wall -Wextra -std=c11 -g -pthread -Wno-unused-variable -Wno-unused-parameter
+CFLAGS = -Wall -Wextra -std=c99 -g -pthread -lrt
 
 # Source files and output
 SRC = brutalNqueen.c queue.c board_t.c
