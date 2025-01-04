@@ -13,4 +13,6 @@ typedef struct {
 void add_queen(board_t * b, int q);
 int drop_queen(board_t * b);
 int is_viable(board_t *b);
+int count_sol(board_t * b);
+int pre_compute_boards(board_t* b,int depth,board_t* boards, int* board_index);
 #endif

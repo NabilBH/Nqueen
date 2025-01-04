@@ -17,9 +17,7 @@ Queue* create_queue(int capacity) {
 
 int is_empty(Queue* q) {
     int result;
-    pthread_mutex_lock(&q->lock);  // Lock the mutex to ensure thread-safety
     result = (q->size == 0);  // Check if the queue is empty
-    pthread_mutex_unlock(&q->lock);  // Unlock the mutex
     return result;
 }
 
