@@ -16,6 +16,28 @@ double get_microseconds_from_epoch()
 	return (double)(tv.tv_sec) * 1e6 + (double)(tv.tv_usec);
 }
 
+int write_to_file(int world_rank, double time_taken){
+	char filename[100];
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    sprintf(filename, "mpi_results_%d-%02d-%02d_%02d-%02d-%02d.csv",
+            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+            tm.tm_hour, tm.tm_min, tm.tm_sec);
+
+    // Write the output to the CSV file
+    FILE *file = fopen(filename, "a");  // Open the CSV file in append mode
+    if (file == NULL) {
+        fprintf(stderr, "Could not open file for writing\n");
+        return 1;
+    }
+    // Write the world_rank and time_taken to the CSV file
+    fprintf(file, "%lf,%d\n", time_taken, world_rank);
+
+    // Close the file
+    fclose(file);
+	return 0;
+}
+
 typedef struct{
 	int expectedTasks;
     Queue* queue;
@@ -90,7 +112,7 @@ int distribute_work(int boardSize, int nbrWorkers,int initBoardDepth){
 	for (int i = 0; i < preComputed; ++i) {
 		//exclude master node from tasks
 		target_worker = (i % (nbrWorkers-1)) + 1; 
-		printf("target %d\n",target_worker);
+		//printf("target %d\n",target_worker);
 		message_t partial_board = {MESSAGE_FORWARD, .board=partialBoards[i]};
 		MPI_Send(&partial_board, sizeof(message_t), MPI_BYTE, target_worker, MY_TAG, MPI_COMM_WORLD);
 	}
@@ -125,7 +147,7 @@ int main(int argc, char** argv)
 	if(world_rank == 0){
 		int depth = 2;
 		thArgs.expectedTasks = distribute_work(world_size,world_size,depth);
-		printf("Distribute work finished\n");
+		//printf("Distribute work finished\n");
 	} 
 	while(world_rank!=0 && thArgs.running == 1)
 	{
@@ -149,11 +171,12 @@ int main(int argc, char** argv)
 	destroy_queue(q);
 	MPI_Finalize();
 	double end = get_microseconds_from_epoch();
-
-	printf("%d: time=%lf\n", world_rank, (end-start)/1e6);
-
+	
 	if (world_rank == 0){
 		printf("Queens=%d, Solutions=%d\n", world_size, thArgs.solCount);
 	}
+
+	double time_taken = (end-start)/1e6;
+	write_to_file(world_rank,time_taken);
 	return 0;
 }
