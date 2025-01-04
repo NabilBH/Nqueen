@@ -99,14 +99,11 @@ void* main_thread_loop_receive(void* args)
 	return 0;
 }
 
-int distribute_work(int boardSize, int nbrWorkers,int initBoardDepth){
-	int MAX_BOARDS = 3500;
-
+int distribute_work(board_t* partialBoards, int nbrWorkers,int initBoardDepth,int boardSize){
 	board_t b = { .full = boardSize, .count = 0 };
 	printf("board size : %d\n", boardSize);
 	// Array pour stocker les partial boards
 	int board_index = 0; 	
-	board_t partialBoards[MAX_BOARDS];
 	int preComputed= pre_compute_boards(&b, initBoardDepth, partialBoards, &board_index);
 	
 	printf("Pre computed Tasks %d\n", preComputed);
@@ -115,7 +112,6 @@ int distribute_work(int boardSize, int nbrWorkers,int initBoardDepth){
 	for (int i = 0; i < preComputed; ++i) {
 		//exclude master node from tasks
 		target_worker = (i % (nbrWorkers-1)) + 1; 
-		//printf("target %d\n",target_worker);
 		message_t partial_board = {MESSAGE_FORWARD, .board=partialBoards[i]};
 		MPI_Send(&partial_board, sizeof(message_t), MPI_BYTE, target_worker, MY_TAG, MPI_COMM_WORLD);
 	}
@@ -130,7 +126,7 @@ int main(int argc, char** argv)
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 	
-	Queue* q = create_queue(250);
+	Queue* q = create_queue(5000);
 	ThreadArgs thArgs = { 
 		.expectedTasks=0, 
 		.queue=q,
@@ -150,11 +146,13 @@ int main(int argc, char** argv)
 	int waiting = 0;
 	pthread_create(&receiver, 0, main_thread_loop_receive, &thArgs);
 	start = get_microseconds_from_epoch();
-
 	if(world_rank == 0){
-		int depth = 2;
-		thArgs.expectedTasks = distribute_work(world_size,world_size,depth);
-		//printf("Distribute work finished\n");
+
+		int depth = 3;
+		int MAX_BOARDS = 5000;
+
+		board_t partialBoards[MAX_BOARDS];
+		thArgs.expectedTasks = distribute_work(partialBoards,world_size,depth,world_size);
 	} 
 	while(world_rank!=0 && thArgs.running == 1)
 	{
@@ -162,7 +160,6 @@ int main(int argc, char** argv)
 			if(taskDone != 0){		
 				startWait = get_microseconds_from_epoch();
 				waiting = 1;
-				//printf("%d start wait\n",world_rank);
 				// potential end of tasks
 				message_t calculatedTasks = {MESSAGE_TASKCOUNT, .completedTasks = taskDone, .solCount=ct};
 				MPI_Send(&calculatedTasks, sizeof(message_t), MPI_BYTE, 0, MY_TAG, MPI_COMM_WORLD);
@@ -180,8 +177,6 @@ int main(int argc, char** argv)
 				}
 				totalWait +=(endWait-startWait);
 				waiting = 0;
-				printf("%d start wait %lf \n",world_rank,startWait);
-				printf("%d end wait %lf\n",world_rank,endWait);
 			}
 
 		}
@@ -196,7 +191,6 @@ int main(int argc, char** argv)
 		endWait = get_microseconds_from_epoch(),
 		totalWait += (endWait - startWait);
 	}
-	printf("%d : Total wait %lf\n",world_rank,totalWait/1e6);
 	if (world_rank == 0){
 		printf("Queens=%d, Solutions=%d\n", world_size, thArgs.solCount);
 	}

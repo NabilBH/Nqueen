@@ -1,7 +1,6 @@
 # vscode
 .vscode*
 
-*.csv
 #build artifacts
 bin/
 

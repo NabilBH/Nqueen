@@ -1,7 +1,7 @@
 #include "board_t.h"
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <string.h>
 void add_queen(board_t * b, int q) 
 {
 	if (b->count > MAX) {
@@ -16,6 +16,7 @@ int drop_queen(board_t * b)
 	return b->pos[-- b->count];
 
 }
+
 int is_viable(board_t *b)
 {
 	int lastp = b->count - 1;
@@ -34,6 +35,7 @@ int count_sol(board_t * b)
 	for (int i = 0; i < b->full; i ++) {
 		add_queen(b, i);
 		if (is_viable(b)) {
+
 			ct += count_sol(b);
 		}
 		drop_queen(b);
@@ -42,6 +44,14 @@ int count_sol(board_t * b)
 }
 
 int pre_compute_boards(board_t* b,int depth,board_t* boards, int* board_index){
+	if (!b || !boards || !board_index) {
+        fprintf(stderr, "Error: Null pointer in pre_compute_boards.\n");
+        return 0;
+    }
+    if (b->full < 0 || b->full > MAX) {
+        fprintf(stderr, "Error: Invalid board size in pre_compute_boards.\n");
+        return 0;
+    }
 	if (b->count == b->full || depth == 0)
 	{
         boards[*board_index] = *b;
