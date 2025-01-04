@@ -16,13 +16,13 @@ double get_microseconds_from_epoch()
 	return (double)(tv.tv_sec) * 1e6 + (double)(tv.tv_usec);
 }
 
-int write_to_file(int world_rank, double time_taken){
+int write_to_file(int world_rank, double time_taken,double totalWait){
 	char filename[100];
-    time_t t = time(NULL);
+	time_t t = time(NULL);
     struct tm tm = *localtime(&t);
     sprintf(filename, "mpi_results_%d-%02d-%02d_%02d-%02d-%02d.csv",
             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-            tm.tm_hour, tm.tm_min, tm.tm_sec);
+            tm.tm_hour, tm.tm_min,tm.tm_sec);
 
     // Write the output to the CSV file
     FILE *file = fopen(filename, "a");  // Open the CSV file in append mode
@@ -30,8 +30,11 @@ int write_to_file(int world_rank, double time_taken){
         fprintf(stderr, "Could not open file for writing\n");
         return 1;
     }
+	if(world_rank == 0){
+		totalWait = 0;
+	}
     // Write the world_rank and time_taken to the CSV file
-    fprintf(file, "%lf,%d\n", time_taken, world_rank);
+    fprintf(file, "%d,%lf,%lf\n",world_rank, time_taken/1e6, totalWait/1e6);
 
     // Close the file
     fclose(file);
@@ -120,7 +123,7 @@ int distribute_work(int boardSize, int nbrWorkers,int initBoardDepth){
 }
 
 int main(int argc, char** argv)
-{
+{	
 	int world_size = 0;
 	int world_rank = 0;
 	MPI_Init(&argc, &argv);
@@ -141,6 +144,10 @@ int main(int argc, char** argv)
 	int ct = 0;
 	double start = 0;
 	int taskDone = 0;
+	double startWait = 0;
+	double endWait = 0;
+	double totalWait = 0;
+	int waiting = 0;
 	pthread_create(&receiver, 0, main_thread_loop_receive, &thArgs);
 	start = get_microseconds_from_epoch();
 
@@ -152,7 +159,10 @@ int main(int argc, char** argv)
 	while(world_rank!=0 && thArgs.running == 1)
 	{
 		if(is_empty(q)){
-			if(taskDone != 0){			
+			if(taskDone != 0){		
+				startWait = get_microseconds_from_epoch();
+				waiting = 1;
+				//printf("%d start wait\n",world_rank);
 				// potential end of tasks
 				message_t calculatedTasks = {MESSAGE_TASKCOUNT, .completedTasks = taskDone, .solCount=ct};
 				MPI_Send(&calculatedTasks, sizeof(message_t), MPI_BYTE, 0, MY_TAG, MPI_COMM_WORLD);
@@ -163,6 +173,17 @@ int main(int argc, char** argv)
 			board_t task = dequeue(q);;
 			ct += count_sol(&task);
 			taskDone += 1;
+			if (waiting){
+				endWait = get_microseconds_from_epoch();
+				if(endWait - startWait < 0){
+					printf("Error wait time \n");
+				}
+				totalWait +=(endWait-startWait);
+				waiting = 0;
+				printf("%d start wait %lf \n",world_rank,startWait);
+				printf("%d end wait %lf\n",world_rank,endWait);
+			}
+
 		}
 	}
 
@@ -171,12 +192,16 @@ int main(int argc, char** argv)
 	destroy_queue(q);
 	MPI_Finalize();
 	double end = get_microseconds_from_epoch();
-	
+	if (waiting){
+		endWait = get_microseconds_from_epoch(),
+		totalWait += (endWait - startWait);
+	}
+	printf("%d : Total wait %lf\n",world_rank,totalWait/1e6);
 	if (world_rank == 0){
 		printf("Queens=%d, Solutions=%d\n", world_size, thArgs.solCount);
 	}
 
-	double time_taken = (end-start)/1e6;
-	write_to_file(world_rank,time_taken);
+	double time_taken = (end-start);
+	write_to_file(world_rank,time_taken,totalWait);
 	return 0;
 }
