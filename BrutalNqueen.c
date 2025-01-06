@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <pthread.h>
+#include <string.h>
 #include "queue.h"
 #include "board_t.h"
 #include "message.h"
@@ -100,32 +101,63 @@ void* main_thread_loop_receive(void* args)
 }
 
 int distribute_work(board_t* partialBoards, int nbrWorkers,int initBoardDepth,int boardSize){
-	board_t b = { .full = boardSize, .count = 0 };
 	printf("board size : %d\n", boardSize);
 	// Array pour stocker les partial boards
 	int board_index = 0; 	
+	board_t b = { .full = boardSize, .count = 0 };
+
 	int preComputed= pre_compute_boards(&b, initBoardDepth, partialBoards, &board_index);
-	
 	printf("Pre computed Tasks %d\n", preComputed);
-	int target_worker = 0;
+
 	//distribute partial boards
-	for (int i = 0; i < preComputed; ++i) {
+	for (int i = 0; i < preComputed; i++) {
 		//exclude master node from tasks
-		target_worker = (i % (nbrWorkers-1)) + 1; 
+		int target_worker = (i % (nbrWorkers-1)) + 1; 
 		message_t partial_board = {MESSAGE_FORWARD, .board=partialBoards[i]};
-		MPI_Send(&partial_board, sizeof(message_t), MPI_BYTE, target_worker, MY_TAG, MPI_COMM_WORLD);
+		int mpi_err=MPI_Send(&partial_board, sizeof(message_t), MPI_BYTE, target_worker, MY_TAG, MPI_COMM_WORLD);
+		if (mpi_err != MPI_SUCCESS) {
+            fprintf(stderr, "Error: MPI_Send failed to worker %d.\n", target_worker);
+            return -1;
+        }
 	}
+
 	return preComputed;
 }
 
 int main(int argc, char** argv)
 {	
+	int queens = 8;
+	// Parse command-line arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-n") == 0) {
+            if (i + 1 < argc) {
+                queens = atoi(argv[i + 1]);
+                if (queens <= 0) {
+                    fprintf(stderr, "Error: Number of queens must be a positive integer.\n");
+                    MPI_Finalize();
+                    return EXIT_FAILURE;
+                }
+                i++; // Skip the value for -n
+            } else {
+                fprintf(stderr, "Error: Missing value for -n.\n");
+                MPI_Finalize();
+                return EXIT_FAILURE;
+            }
+        }
+    }
+
+    // Debugging output to verify number of queens
+
 	int world_size = 0;
 	int world_rank = 0;
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 	
+
+	if (world_rank == 0) {
+        printf("Number of queens: %d\n", queens);
+    }
 	Queue* q = create_queue(5000);
 	ThreadArgs thArgs = { 
 		.expectedTasks=0, 
@@ -148,11 +180,13 @@ int main(int argc, char** argv)
 	start = get_microseconds_from_epoch();
 	if(world_rank == 0){
 
-		int depth = 3;
+		int depth = 2;
 		int MAX_BOARDS = 5000;
 
 		board_t partialBoards[MAX_BOARDS];
-		thArgs.expectedTasks = distribute_work(partialBoards,world_size,depth,world_size);
+
+		thArgs.expectedTasks = distribute_work(partialBoards,world_size,depth,queens);
+		printf("DOne");
 	} 
 	while(world_rank!=0 && thArgs.running == 1)
 	{
@@ -163,6 +197,7 @@ int main(int argc, char** argv)
 				// potential end of tasks
 				message_t calculatedTasks = {MESSAGE_TASKCOUNT, .completedTasks = taskDone, .solCount=ct};
 				MPI_Send(&calculatedTasks, sizeof(message_t), MPI_BYTE, 0, MY_TAG, MPI_COMM_WORLD);
+				
 				taskDone = 0;
 				ct=0;
 			}
@@ -192,7 +227,7 @@ int main(int argc, char** argv)
 		totalWait += (endWait - startWait);
 	}
 	if (world_rank == 0){
-		printf("Queens=%d, Solutions=%d\n", world_size, thArgs.solCount);
+		printf("Queens=%d, Solutions=%d\n", queens, thArgs.solCount);
 	}
 
 	double time_taken = (end-start);

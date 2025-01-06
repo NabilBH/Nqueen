@@ -62,9 +62,24 @@ int pre_compute_boards(board_t* b,int depth,board_t* boards, int* board_index){
 	for (int i = 0; i < b->full; i ++) {
 			add_queen(b, i);
 			if (is_viable(b)) {
+				
 				ct += pre_compute_boards(b, depth - 1, boards,board_index);
 			}
 			drop_queen(b);
 		}
 	return ct;
+}
+
+void copy_board_t(const board_t *src, board_t *dest) {
+    if (!src || !dest) {
+        fprintf(stderr, "Error: Null pointer provided to copy_board_t.\n");
+        return;
+    }
+
+    // Copy the simple fields
+    dest->full = src->full;
+    dest->count = src->count;
+
+    // Copy the array
+    memcpy(dest->pos, src->pos, sizeof(src->pos));
 }
